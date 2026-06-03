@@ -30,7 +30,7 @@ jobs:
       - name: Checkout Joplin source
         uses: actions/checkout@v4
         with:
-          repository: mygitHub/joplin     # ← 你的 Fork 地址
+          repository: qiuxufeng/joplin     # ← 你的 Fork 地址
           ref: ${{ github.event.inputs.joplin_ref }}
           path: joplin-source             # ← 放到 joplin-source 子目录
 
