@@ -1,4 +1,4 @@
-name: Build Slim Joplin Server
+name: Build alpine Joplin Server
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
       image_tag:
         description: '镜像标签'
         required: true
-        default: 'slim'
+        default: 'alpine'
 
 jobs:
   build:
@@ -49,7 +49,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: ./joplin-source                  # ← 源码目录
-          file: ./build-repo/Dockerfile.server      # ← 精简 Dockerfile
+          file: ./Dockerfile.server      # ← 精简 Dockerfile
           push: true
           tags: ghcr.io/${{ github.actor }}/joplin-server:${{ github.event.inputs.image_tag }}
           cache-from: type=gha
