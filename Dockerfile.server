@@ -1,29 +1,95 @@
 # =============================================================================
-# Joplin Server - 复用已有 PostgreSQL 版
+# Build stage - 使用完整 node:24 进行构建
 # =============================================================================
+ROM node:24-alpine AS builder
 
-networks:
-  # 引用已有的外部网络（1Panel 默认网络）
-  1panel-network:
-    external: true
+RUN apk add --no-cache \
+    python3 make g++ \
+    cairo-dev pango-dev jpeg-dev giflib-dev librsvg-dev \
+    tini
 
-services:
-  # ---- Joplin Server（仅保留这一个服务）----
-  app:
-    image: joplin/server:slim          # ← 你的精简镜像
-    container_name: joplin-app
-    ports:
-      - "22300:22300"
-    networks:
-      - 1panel-network                 # ← 加入已有 PG 所在的网络
-    restart: unless-stopped
-    environment:
-      - APP_PORT=22300
-      - APP_BASE_URL=${APP_BASE_URL}
-      - DB_CLIENT=pg
-      # ↓↓↓ 以下指向你已有的 PostgreSQL ↓↓↓
-      - POSTGRES_HOST=postgres         # ← 已有 PG 容器的名称（Docker DNS 自动解析）
-      - POSTGRES_PORT=5432
-      - POSTGRES_DATABASE=joplin       # ← 第 2 步创建的数据库名
-      - POSTGRES_USER=joplin           # ← 第 2 步创建的用户名
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}  # ← 第 2 步设置的密码
+RUN corepack enable
+
+WORKDIR /build
+
+COPY .yarn/releases ./.yarn/releases
+COPY .yarn/patches ./.yarn/patches
+COPY package.json .
+COPY .yarnrc.yml .
+COPY yarn.lock .
+COPY gulpfile.js .
+COPY tsconfig.json .
+COPY packages/turndown ./packages/turndown
+COPY packages/turndown-plugin-gfm ./packages/turndown-plugin-gfm
+COPY packages/fork-htmlparser2 ./packages/fork-htmlparser2
+COPY packages/server/package*.json ./packages/server/
+COPY packages/fork-sax ./packages/fork-sax
+COPY packages/fork-uslug ./packages/fork-uslug
+COPY packages/htmlpack ./packages/htmlpack
+COPY packages/renderer ./packages/renderer
+COPY packages/tools ./packages/tools
+COPY packages/utils ./packages/utils
+COPY packages/lib ./packages/lib
+COPY packages/server ./packages/server
+
+RUN sed --in-place '/onenote-converter/d' ./packages/lib/package.json
+
+RUN --mount=type=cache,target=/build/.yarn/cache \
+    --mount=type=cache,target=/build/.yarn/berry/cache \
+    BUILD_SEQUENCIAL=1 yarn config set cacheFolder /build/.yarn/cache \
+    && yarn install --inline-builds \
+    && sed --in-place 's/"postinstall": ".*"/"postinstall": ""/' \
+       ./package.json ./packages/*/package.json \
+    && yarn workspaces focus --production --all
+
+# ============ 新增：构建后清理 ============
+# 删除 TypeScript 源文件，只保留编译后的 JS
+RUN find /build/packages -name "*.ts" ! -name "*.d.ts" -delete
+# 删除测试文件
+RUN find /build/packages -type d \( -name "__tests__" -o -name "test" \
+    -o -name "tests" -o -name "spec" -o -name "__mocks__" \) -exec rm -rf {} + 2>/dev/null || true
+# 删除 node_modules 中的冗余文件
+RUN find /build/packages -path "*/node_modules/*/README*" -delete 2>/dev/null || true
+RUN find /build/packages -path "*/node_modules/*/CHANGELOG*" -delete 2>/dev/null || true
+RUN find /build/packages -path "*/node_modules/*/LICENSE*" -delete 2>/dev/null || true
+RUN find /build/packages -path "*/node_modules/*/.eslintrc*" -delete 2>/dev/null || true
+RUN find /build/packages -path "*/node_modules/*/tsconfig*" -delete 2>/dev/null || true
+RUN find /build/packages -path "*/node_modules/*/*.ts" ! -path "*/node_modules/*/*.d.ts" \
+    -delete 2>/dev/null || true
+# 删除 .yarn 缓存
+RUN rm -rf /build/.yarn/cache /build/.yarn/berry/cache
+
+# =============================================================================
+# 最终阶段改用 Alpine
+# =============================================================================
+FROM node:24-alpine
+
+ARG user=joplin
+RUN adduser -D -s /bin/sh $user
+
+# Alpine 下需要安装 node-canvas 运行时依赖
+RUN apk add --no-cache \
+    cairo \
+    pango \
+    libjpeg-turbo \
+    giflib \
+    librsvg \
+    tini
+
+# ===== 优化：去掉 PM2，直接用 tini 启动 node =====
+# PM2 会增加 ~50-80MB，个人使用完全不需要
+RUN mkdir -p /opt/pm2 && chown -R $user:$user /opt/pm2
+
+USER $user
+
+COPY --chown=$user:$user --from=builder /build/packages /home/$user/packages
+COPY --chown=$user:$user --from=builder /usr/bin/tini /usr/local/bin/tini
+
+ENV NODE_ENV=production
+ENV RUNNING_IN_DOCKER=1
+EXPOSE ${APP_PORT}
+
+WORKDIR /home/$user/packages/server
+ENTRYPOINT ["tini", "--"]
+# 不用 PM2，直接用 node 启动
+CMD ["node", "dist/app.js"]
