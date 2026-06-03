@@ -1,15 +1,38 @@
 name: Build Slim Joplin Server
-
 on:
-  push:
-    branches: [dev]
   workflow_dispatch:
+    inputs:
+      joplin_ref:
+        description: 'Joplin 分支/标签 (如: dev, v3.2.0)'
+        required: true
+        default: 'dev'
+      image_tag:
+        description: '镜像标签'
+        required: true
+        default: 'slim'
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - uses: actions/checkout@v4
+      # 第 1 步：checkout 构建仓库本身（拿到精简版 Dockerfile）
+      - name: Checkout build repo
+        uses: actions/checkout@v4
+        with:
+          path: build-repo       # ← 放到 build-repo 子目录
+
+      # 第 2 步：clone Joplin 源码（从你的 Fork）
+      - name: Checkout Joplin source
+        uses: actions/checkout@v4
+        with:
+          repository: mygitHub/joplin     # ← 你的 Fork 地址
+          ref: ${{ github.event.inputs.joplin_ref }}
+          path: joplin-source             # ← 放到 joplin-source 子目录
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -21,12 +44,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # 第 3 步：用精简 Dockerfile + Joplin 源码 构建
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: .
-          file: Dockerfile.server
+          context: ./joplin-source                  # ← 源码目录
+          file: ./build-repo/Dockerfile.server      # ← 精简 Dockerfile
           push: true
-          tags: ghcr.io/${{ github.actor }}/joplin-server:slim
+          tags: ghcr.io/${{ github.actor }}/joplin-server:${{ github.event.inputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
