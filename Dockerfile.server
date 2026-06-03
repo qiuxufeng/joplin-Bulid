@@ -1,0 +1,29 @@
+# =============================================================================
+# Joplin Server - 复用已有 PostgreSQL 版
+# =============================================================================
+
+networks:
+  # 引用已有的外部网络（1Panel 默认网络）
+  1panel-network:
+    external: true
+
+services:
+  # ---- Joplin Server（仅保留这一个服务）----
+  app:
+    image: joplin/server:slim          # ← 你的精简镜像
+    container_name: joplin-app
+    ports:
+      - "22300:22300"
+    networks:
+      - 1panel-network                 # ← 加入已有 PG 所在的网络
+    restart: unless-stopped
+    environment:
+      - APP_PORT=22300
+      - APP_BASE_URL=${APP_BASE_URL}
+      - DB_CLIENT=pg
+      # ↓↓↓ 以下指向你已有的 PostgreSQL ↓↓↓
+      - POSTGRES_HOST=postgres         # ← 已有 PG 容器的名称（Docker DNS 自动解析）
+      - POSTGRES_PORT=5432
+      - POSTGRES_DATABASE=joplin       # ← 第 2 步创建的数据库名
+      - POSTGRES_USER=joplin           # ← 第 2 步创建的用户名
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}  # ← 第 2 步设置的密码
