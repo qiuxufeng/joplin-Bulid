@@ -1,13 +1,16 @@
 # =============================================================================
-# Build stage - 使用完整 node:24 进行构建
+# Build stage - Alpine 全栈构建（解决 musl/glibc 兼容问题）
 # =============================================================================
-ROM node:24-alpine AS builder
+FROM node:24-alpine AS builder
 
+# 安装构建依赖
+# pkgconfig: node-canvas 编译时需要查找 cairo/pango 头文件路径
 RUN apk add --no-cache \
-    python3 make g++ \
+    python3 make g++ pkgconfig \
     cairo-dev pango-dev jpeg-dev giflib-dev librsvg-dev \
     tini
 
+# 启用 yarn（通过 corepack）
 RUN corepack enable
 
 WORKDIR /build
@@ -32,19 +35,21 @@ COPY packages/utils ./packages/utils
 COPY packages/lib ./packages/lib
 COPY packages/server ./packages/server
 
-RUN sed --in-place '/onenote-converter/d' ./packages/lib/package.json
+# [修正 #2] BusyBox sed 用 -i 替代 --in-place
+RUN sed -i '/onenote-converter/d' ./packages/lib/package.json
 
 RUN --mount=type=cache,target=/build/.yarn/cache \
     --mount=type=cache,target=/build/.yarn/berry/cache \
     BUILD_SEQUENCIAL=1 yarn config set cacheFolder /build/.yarn/cache \
     && yarn install --inline-builds \
-    && sed --in-place 's/"postinstall": ".*"/"postinstall": ""/' \
+    # [修正 #2] 同样改用 -i
+    && sed -i 's/"postinstall": ".*"/"postinstall": ""/' \
        ./package.json ./packages/*/package.json \
     && yarn workspaces focus --production --all
 
-# ============ 新增：构建后清理 ============
-# 删除 TypeScript 源文件，只保留编译后的 JS
-RUN find /build/packages -name "*.ts" ! -name "*.d.ts" -delete
+# ============ 构建后清理 ============
+# 删除 TypeScript 源文件，只保留编译后的 JS 和 .d.ts 类型声明
+RUN find /build/packages -name "*.ts" ! -name "*.d.ts" -delete 2>/dev/null || true
 # 删除测试文件
 RUN find /build/packages -type d \( -name "__tests__" -o -name "test" \
     -o -name "tests" -o -name "spec" -o -name "__mocks__" \) -exec rm -rf {} + 2>/dev/null || true
@@ -60,14 +65,14 @@ RUN find /build/packages -path "*/node_modules/*/*.ts" ! -path "*/node_modules/*
 RUN rm -rf /build/.yarn/cache /build/.yarn/berry/cache
 
 # =============================================================================
-# 最终阶段改用 Alpine
+# Final stage - Alpine 精简运行环境
 # =============================================================================
 FROM node:24-alpine
 
 ARG user=joplin
 RUN adduser -D -s /bin/sh $user
 
-# Alpine 下需要安装 node-canvas 运行时依赖
+# 安装运行时依赖（仅运行时需要的库，不含 -dev 开发包）
 RUN apk add --no-cache \
     cairo \
     pango \
@@ -76,20 +81,20 @@ RUN apk add --no-cache \
     librsvg \
     tini
 
-# ===== 优化：去掉 PM2，直接用 tini 启动 node =====
-# PM2 会增加 ~50-80MB，个人使用完全不需要
-RUN mkdir -p /opt/pm2 && chown -R $user:$user /opt/pm2
+# [修正 #4] 启用 corepack，使 yarn 命令可用
+RUN corepack enable
 
 USER $user
 
+# 从构建阶段复制编译产物
 COPY --chown=$user:$user --from=builder /build/packages /home/$user/packages
-COPY --chown=$user:$user --from=builder /usr/bin/tini /usr/local/bin/tini
+# [修正 #3] 删除 tini 的 COPY 行（已通过 apk 安装，路径为 /sbin/tini）
 
 ENV NODE_ENV=production
 ENV RUNNING_IN_DOCKER=1
 EXPOSE ${APP_PORT}
 
 WORKDIR /home/$user/packages/server
-ENTRYPOINT ["tini", "--"]
-# 不用 PM2，直接用 node 启动
-CMD ["node", "dist/app.js"]
+ENTRYPOINT ["/sbin/tini", "--"]
+# [修正 #6] 保持与官方一致的启动命令，最安全
+CMD ["yarn", "start-prod"]
