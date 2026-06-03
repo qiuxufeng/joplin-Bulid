@@ -1,0 +1,3 @@
+services:
+  joplin:
+    image: ghcr.io/qiuxufeng/joplin-server:slim
