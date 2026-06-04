@@ -87,6 +87,11 @@ RUN apk add --no-cache \
 # [修正 #4] 启用 corepack，使 yarn 命令可用
 RUN corepack enable
 
+# ====== 【关键修复】全局安装 pm2 ======
+# 必须在 USER $user 之前执行，因为全局安装需要 root 权限写入 /usr/local/lib/node_modules
+RUN npm install -g pm2
+# ====================================
+
 USER $user
 
 # 从构建阶段复制编译产物
