@@ -38,7 +38,12 @@ jobs:
           repository: qiuxufeng/joplin
           ref: ${{ github.event.inputs.joplin_ref }}
           path: joplin-source
-
+          
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64  # 显式启用 arm64 模拟支持
+          
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -59,6 +64,7 @@ jobs:
           file: ./build-repo/Dockerfile.server 
           # ============================================
           push: true
+          platforms: linux/arm64  # 关键：指定目标架构为 arm64
           tags: ghcr.io/${{ github.actor }}/joplin-server-custom:${{ github.event.inputs.image_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
