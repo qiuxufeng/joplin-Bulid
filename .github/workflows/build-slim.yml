@@ -1,4 +1,5 @@
 name: Build alpine Joplin Server
+
 on:
   workflow_dispatch:
     inputs:
@@ -14,25 +15,29 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
+    # ====== 【关键修复 #1】强制使用 Node.js 24 ======
+    # 背景：2026年6月后 GitHub Actions 默认仍可能使用旧版 Node，需手动指定
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    # ============================================
 
     permissions:
       contents: read
       packages: write
 
     steps:
-      # 第 1 步：checkout 构建仓库本身（拿到精简版 Dockerfile）
       - name: Checkout build repo
         uses: actions/checkout@v4
         with:
-          path: build-repo       # ← 放到 build-repo 子目录
+          path: build-repo
 
-      # 第 2 步：clone Joplin 源码（从你的 Fork）
       - name: Checkout Joplin source
         uses: actions/checkout@v4
         with:
-          repository: qiuxufeng/joplin     # ← 你的 Fork 地址
+          repository: qiuxufeng/joplin
           ref: ${{ github.event.inputs.joplin_ref }}
-          path: joplin-source             # ← 放到 joplin-source 子目录
+          path: joplin-source
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -44,12 +49,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 第 3 步：用精简 Dockerfile + Joplin 源码 构建
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./joplin-source                  # ← 源码目录
-          file: ./Dockerfile.server      # ← 精简 Dockerfile
+          context: ./joplin-source
+          # ====== 【关键修复 #2】Dockerfile 路径修正 ======
+          # 原文错误: ./Dockerfile.server 
+          # 原因: 你 checkout 到了 build-repo 目录，且 Dockerfile 在构建仓库根目录
+          file: ./build-re-pub/Dockerfile.server 
+          # ============================================
           push: true
           tags: ghcr.io/${{ github.actor }}/joplin-server:${{ github.event.inputs.image_tag }}
           cache-from: type=gha
