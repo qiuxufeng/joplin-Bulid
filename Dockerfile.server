@@ -1,16 +1,17 @@
-# =============================================================================
-# Build stage - Alpine 全栈构建（解决 musl/glibc 兼容问题）
-# =============================================================================
+# ============================================================================= 
+# Build stage - Alpine 全栈构建
+# ============================================================================= 
 FROM node:24-alpine AS builder
 
-# 安装构建依赖
-# pkgconfig: node-canvas 编译时需要查找 cairo/pango 头文件路径
+# 1. 安装依赖：建议添加 tzdata 时区数据，否则容器内可能显示 UTC 时间
+# python3/make/g++: 编译依赖
+# pkgconfig: node-canvas 必需
 RUN apk add --no-cache \
     python3 make g++ pkgconfig \
     cairo-dev pango-dev jpeg-dev giflib-dev librsvg-dev \
-    tini
+    tini tzdata # <--- 建议添加 tzdata
 
-# 启用 yarn（通过 corepack）
+# 启用 yarn
 RUN corepack enable
 
 WORKDIR /build
@@ -64,22 +65,24 @@ RUN find /build/packages -path "*/node_modules/*/*.ts" ! -path "*/node_modules/*
 # 删除 .yarn 缓存
 RUN rm -rf /build/.yarn/cache /build/.yarn/berry/cache
 
-# =============================================================================
+# ============================================================================= 
 # Final stage - Alpine 精简运行环境
-# =============================================================================
+# ============================================================================= 
 FROM node:24-alpine
 
 ARG user=joplin
 RUN adduser -D -s /bin/sh $user
 
-# 安装运行时依赖（仅运行时需要的库，不含 -dev 开发包）
+# 2. 运行时依赖：同样建议添加 tzdata
+# 注意：运行时不需要 -dev 包，你已经做得很好了
 RUN apk add --no-cache \
     cairo \
     pango \
     libjpeg-turbo \
     giflib \
     librsvg \
-    tini
+    tini \
+    tzdata # <--- 建议添加
 
 # [修正 #4] 启用 corepack，使 yarn 命令可用
 RUN corepack enable
