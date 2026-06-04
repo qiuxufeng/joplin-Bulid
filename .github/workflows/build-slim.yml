@@ -56,7 +56,7 @@ jobs:
           # ====== 【关键修复 #2】Dockerfile 路径修正 ======
           # 原文错误: ./Dockerfile.server 
           # 原因: 你 checkout 到了 build-repo 目录，且 Dockerfile 在构建仓库根目录
-          file: ./build-re-pub/Dockerfile.server 
+          file: ./build-repo/Dockerfile.server 
           # ============================================
           push: true
           tags: ghcr.io/${{ github.actor }}/joplin-server:${{ github.event.inputs.image_tag }}
